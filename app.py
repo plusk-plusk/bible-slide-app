@@ -1,6 +1,5 @@
 from flask import Flask, render_template, request, send_file
 from ppt_generator import make_bible_ppt
-import os
 
 app = Flask(__name__)
 
@@ -11,26 +10,23 @@ def home():
 @app.route("/generate", methods=["POST"])
 def generate():
     verses_raw = request.form["verses"]
-    verses = [v.strip() for v in verses_raw.splitlines() if v.strip()]
 
-    if not verses:
-        return "❌ 구절을 입력해주세요.", 400
+    if not verses_raw.strip():
+        return "❌ 구절을 입력해주세요."
 
-    # 입력 구절을 텍스트 파일로 저장
-    ref_path = "selected_refs.txt"
-    with open(ref_path, "w", encoding="utf-8") as f:
-        for verse in verses:
-            f.write(verse + "\n")
+    with open("selected_refs.txt", "w", encoding="utf-8") as f:
+        f.write(verses_raw)
 
-    # PPT 생성
-    make_bible_ppt(
-        json_path="bible.json",
-        ref_path=ref_path,
-        output_path="BibleSlides.pptx",
-        background_image="001.jpg"
-    )
-
-    return send_file("BibleSlides.pptx", as_attachment=True)
+    try:
+        make_bible_ppt(
+            json_path="bible.json",
+            ref_path="selected_refs.txt",
+            output_path="BibleSlides.pptx",
+            background_image="001.jpg"
+        )
+        return send_file("BibleSlides.pptx", as_attachment=True)
+    except Exception as e:
+        return f"⚠️ PPT 생성 중 오류 발생: {e}"
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    app.run(debug=False, host="0.0.0.0", port=10000)
