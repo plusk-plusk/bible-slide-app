@@ -1,5 +1,4 @@
 from flask import Flask, request, render_template, send_file
-from make_ppt import make_bible_ppt
 
 app = Flask(__name__)
 
