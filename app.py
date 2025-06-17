@@ -1,25 +1,21 @@
-from flask import Flask, render_template, request, send_file
-from ppt_generator import generate_ppt  # 별도 모듈에 정의된 PPT 생성 함수
+from flask import Flask, render_template, request, redirect, send_file
+from ppt_generator import make_bible_ppt as generate_ppt
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder="templates")
 
-# ✅ 루트 페이지 - index.html 렌더링
 @app.route("/")
 def home():
     return render_template("index.html")
 
-# ✅ POST 요청으로 구절을 받아서 PPT 생성
-@app.route("/generate", methods=["POST"])
-def generate():
-    verses_raw = request.form.get("verses", "")
-    if not verses_raw.strip():
-        return "❌ 구절을 입력해주세요.", 400
+@app.route("/upload", methods=["POST"])
+def upload():
+    verses = request.form.get("verses", "").strip()
+    if not verses:
+        return "❌ 구절이 입력되지 않았습니다.", 400
 
-    # 요청된 구절을 파일로 저장
     with open("selected_refs.txt", "w", encoding="utf-8") as f:
-        f.write(verses_raw)
+        f.write(verses)
 
-    # PPT 생성 함수 호출
     try:
         generate_ppt(
             json_path="bible.json",
@@ -27,10 +23,17 @@ def generate():
             output_path="BibleSlides.pptx",
             background_image="001.jpg"
         )
-        return send_file("BibleSlides.pptx", as_attachment=True)
+        return redirect("/done")
     except Exception as e:
-        return f"❌ PPT 생성 중 오류 발생: {e}", 500
+        return f"❌ 슬라이드 생성 중 오류 발생: {e}", 500
 
-# ✅ 실행부
+@app.route("/done")
+def done():
+    return render_template("done.html")
+
+@app.route("/download")
+def download():
+    return send_file("BibleSlides.pptx", as_attachment=True)
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)  # Render 배포 시 필수
+    app.run(host="0.0.0.0", port=10000)
