@@ -1,28 +1,31 @@
 from flask import Flask, request, send_file, render_template, redirect, url_for
 from pptx import Presentation
-from pptx.util import Inches, Pt
+from pptx.util import Inches
 import json
-import os
 
 app = Flask(__name__)
 
-# ✅ 루트 경로로 접속하면 /upload로 리디렉션
+# 루트 경로 → /upload로 리디렉션
 @app.route("/")
 def index():
     return redirect(url_for("upload"))
 
-# ✅ /upload 경로: 사용자가 구절을 입력할 수 있는 폼
+# 구절 입력 폼 페이지
 @app.route("/upload", methods=["GET"])
 def upload():
     return render_template("index.html")
 
-# ✅ /generate 경로: 구절들을 받아서 ppt 생성
+# 슬라이드 생성 요청
 @app.route("/generate", methods=["POST"])
 def generate():
     with open("bible.json", "r", encoding="utf-8") as f:
         bible_data = json.load(f)
 
-    verses = request.form["verses"].splitlines()
+    verses_raw = request.form.get("verses")
+    if not verses_raw:
+        return "❌ 구절을 입력해주세요.", 400
+
+    verses = verses_raw.splitlines()
     prs = Presentation()
     blank_slide_layout = prs.slide_layouts[6]
 
@@ -46,7 +49,7 @@ def generate():
     prs.save(output_path)
     return send_file(output_path, as_attachment=True)
 
-# ✅ /download 경로 (선택 사항)
+# 선택적으로 /download로 슬라이드 바로 다운로드 가능
 @app.route("/download")
 def download():
     return send_file("BibleSlides.pptx", as_attachment=True)
