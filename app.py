@@ -1,55 +1,64 @@
-from flask import Flask, render_template, request, send_file
 from pptx import Presentation
 from pptx.util import Inches, Pt
-import json
-import os
-import uuid
+from pptx.enum.text import PP_ALIGN
+from pptx.dml.color import RGBColor
 
-app = Flask(__name__)
+from extractor import extract_bible_verses
 
-# JSON 경로 설정
-BIBLE_JSON_PATH = os.path.join(os.path.dirname(__file__), "bible.json")
-
-# JSON 로드
-with open(BIBLE_JSON_PATH, "r", encoding="utf-8") as f:
-    bible_data = json.load(f)
-
-@app.route("/")
-def home():
-    return render_template("index.html")
-
-@app.route("/upload", methods=["POST"])
-def upload():
-    verses_raw = request.form["verses"]
-    verses = [v.strip() for v in verses_raw.splitlines() if v.strip()]
-
+def make_bible_ppt(json_path, ref_path, output_path, background_image):
     prs = Presentation()
-    blank_slide_layout = prs.slide_layouts[6]
+    prs.slide_width = Inches(13.33)
+    prs.slide_height = Inches(7.5)
+
+    verses = extract_bible_verses(json_path, ref_path)
+
+    if not verses:
+        print("⚠️ 구절이 없어서 PPT를 생성하지 않았습니다.")
+        return
 
     for verse in verses:
-        verse_text = bible_data.get(verse)
-        slide = prs.slides.add_slide(blank_slide_layout)
-        
-        # 제목
-        title_box = slide.shapes.add_textbox(Inches(0.8), Inches(0.3), Inches(8.5), Inches(1.0))
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        slide.shapes.add_picture(background_image, 0, 0, width=prs.slide_width, height=prs.slide_height)
+
+        margin_h = Inches(1.2)
+        box_width = prs.slide_width - 2 * margin_h
+
+        # 제목 텍스트 박스
+        title_top = Inches(1.2)
+        title_box = slide.shapes.add_textbox(margin_h, title_top, box_width, Inches(0.6))
         title_frame = title_box.text_frame
-        p = title_frame.paragraphs[0]
-        p.text = verse
-        p.font.size = Pt(44)
-        p.font.bold = True
+        title_frame.word_wrap = True
+        p_title = title_frame.paragraphs[0]
+        p_title.alignment = PP_ALIGN.LEFT
+        run_title = p_title.add_run()
+        run_title.text = verse["title"]
+        run_title.font.size = Pt(30)
+        run_title.font.bold = True
+        run_title.font.color.rgb = RGBColor(0x33, 0x33, 0x33)
+        run_title.font.name = 'Apple SD Gothic Neo'
 
-        # 본문
-        body_box = slide.shapes.add_textbox(Inches(0.8), Inches(1.4), Inches(8.5), Inches(5.0))
+        # 본문 텍스트 박스 (높이 증가)
+        body_top = title_top + Inches(0.9)
+        body_box = slide.shapes.add_textbox(margin_h, body_top, box_width, Inches(4.5))
         body_frame = body_box.text_frame
-        p = body_frame.paragraphs[0]
-        p.text = verse_text if verse_text else f"⚠️ 구절 파싱 오류: {verse}"
-        p.font.size = Pt(60)
-        body_frame.line_spacing = 1.2
+        body_frame.word_wrap = True
+        p_body = body_frame.paragraphs[0]
+        p_body.alignment = PP_ALIGN.JUSTIFY
+        p_body.line_spacing = 1.2
+        run_body = p_body.add_run()
+        run_body.text = verse["text"]
+        run_body.font.size = Pt(52)
+        run_body.font.bold = True
+        run_body.font.color.rgb = RGBColor(0x22, 0x22, 0x22)
+        run_body.font.name = 'Apple SD Gothic Neo'
 
-    output_path = f"output_{uuid.uuid4().hex}.pptx"
     prs.save(output_path)
-    return send_file(output_path, as_attachment=True)
+    print(f"✅ BibleSlides.pptx 생성 완료! 총 {len(verses)}개 슬라이드")
 
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=10000)
-
+    make_bible_ppt(
+        json_path="bible.json",
+        ref_path="selected_refs.txt",
+        output_path="BibleSlides.pptx",
+        background_image="001.jpg"
+    )
