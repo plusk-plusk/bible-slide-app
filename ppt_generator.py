@@ -4,7 +4,7 @@ from pptx.enum.text import PP_ALIGN
 from pptx.dml.color import RGBColor
 from extractor import extract_bible_verses
 
-def generate_ppt(json_path, ref_path, output_path, background_image):
+def make_bible_ppt(json_path, ref_path, output_path, background_image):
     prs = Presentation()
     prs.slide_width = Inches(13.33)
     prs.slide_height = Inches(7.5)
