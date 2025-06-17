@@ -1,14 +1,32 @@
 <!DOCTYPE html>
-<html>
+<html lang="ko">
 <head>
     <meta charset="UTF-8">
     <title>성경 슬라이드 생성기</title>
+    <style>
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            margin: 40px;
+        }
+        h1 {
+            font-size: 28px;
+        }
+        textarea {
+            width: 100%;
+            height: 200px;
+            font-size: 18px;
+        }
+        button {
+            font-size: 16px;
+            margin-top: 10px;
+        }
+    </style>
 </head>
 <body>
-    <h1>성경 구절 입력</h1>
+    <h1>📖 성경 구절 입력</h1>
     <form action="/generate" method="post">
-        <textarea name="bible_refs" rows="10" cols="50" placeholder="예: 창1:1~3&#10;요3:16"></textarea><br><br>
-        <button type="submit">슬라이드 생성</button>
+        <textarea name="verses" placeholder="예: 창세기 1:1&#10;공백 포함 형식으로 입력해주세요.&#10;여러 줄도 입력 가능합니다."></textarea><br>
+        <button type="submit">📂 슬라이드 생성</button>
     </form>
 </body>
 </html>
