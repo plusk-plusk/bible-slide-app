@@ -38,7 +38,7 @@ def make_bible_ppt(json_path, ref_path, output_path, background_image):
         run_title.font.name = 'Apple SD Gothic Neo'
 
         # 본문 텍스트 박스
-        body_top = title_top + Inches(0.9)
+        body_top = title_top + Inches(0.8)
         body_box = slide.shapes.add_textbox(margin_h, body_top, box_width, Inches(3.5))
         body_frame = body_box.text_frame
         body_frame.word_wrap = True
@@ -47,7 +47,7 @@ def make_bible_ppt(json_path, ref_path, output_path, background_image):
         p_body.line_spacing = 1.2
         run_body = p_body.add_run()
         run_body.text = verse["text"]
-        run_body.font.size = Pt(48)
+        run_body.font.size = Pt(55)
         run_body.font.bold = True
         run_body.font.color.rgb = RGBColor(34, 34, 34)  # 더 진한 회색 (#222222)
         run_body.font.name = 'Apple SD Gothic Neo'
