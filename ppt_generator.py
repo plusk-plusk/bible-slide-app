@@ -20,7 +20,7 @@ def make_bible_ppt(json_path, ref_path, output_path, background_image):
         slide.shapes.add_picture(background_image, 0, 0,
                                  width=prs.slide_width, height=prs.slide_height)
 
-        margin_h = Inches(1.2)
+        margin_h = Inches(1.3)
         box_width = prs.slide_width - 2 * margin_h
 
         # 제목 텍스트 박스
