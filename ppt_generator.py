@@ -38,7 +38,7 @@ def make_bible_ppt(json_path, ref_path, output_path, background_image):
         run_title.font.name = 'Apple SD Gothic Neo'
 
         # 본문 텍스트 박스
-        body_top = title_top + Inches(0.8)
+        body_top = title_top + Inches(0.85)
         body_box = slide.shapes.add_textbox(margin_h, body_top, box_width, Inches(3.5))
         body_frame = body_box.text_frame
         body_frame.word_wrap = True
