@@ -64,7 +64,7 @@ def upload():
             json_path="bible.json",
             ref_path="selected_refs.txt",
             output_path="BibleSlides.pptx",
-            background_image="001.jpg"
+            background_image="autumn.png"
         )
         return redirect("/done")
     except Exception as e:
