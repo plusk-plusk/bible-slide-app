@@ -4,24 +4,53 @@ from pptx.enum.text import PP_ALIGN
 from pptx.dml.color import RGBColor
 from extractor import extract_bible_verses
 
-# ====== 쉬운 튜닝용 상수 ======
-# 은은한 음영 색상: 어두운 카키/올리브 톤 (가을 배경과 자연스러운 조화)
-SHADE_COLOR = RGBColor(25, 30, 20)
+# ====== 튜닝용 상수 ======
+SHADOW_COLOR = RGBColor(22, 24, 20)   # 검정보다 부드러운 짙은 올리브
+SHADOW_OFFSET_IN = 0.02               # 매우 작게 (0.015~0.03 권장 범위)
 
-# 투명도(0.0=불투명, 1.0=완전투명) — 너무 어두우면 값을 "올리면" 옅어짐
-TITLE_SHADE_ALPHA = 0.14  # 권장 범위: 0.12 ~ 0.16
-BODY_SHADE_ALPHA  = 0.12  # 권장 범위: 0.10 ~ 0.16
+TITLE_SIZE_PT = 36
+BODY_SIZE_PT  = 50                    # 필요시 48~52 사이에서 조정
+LINE_SPACING  = 1.15                  # 본문 줄간격 (1.15~1.25 추천)
 
-# 텍스트 박스 높이(“띠”만 보이도록 낮게)
-TITLE_BOX_HEIGHT_IN = 0.65
-BODY_BOX_HEIGHT_IN  = 2.60
-
-# 좌우를 살짝 좁혀 전체를 덮지 않게
+# 좌우 여백/박스 폭(텍스트만 깔끔히 보이도록)
+OUTER_MARGIN_IN   = 1.3
 INNER_SIDE_GAP_IN = 0.25
 
-# 내부 패딩(글자가 박스에 붙지 않게)
-TITLE_MARGINS_IN = (0.10, 0.10, 0.06, 0.06)  # left, right, top, bottom
-BODY_MARGINS_IN  = (0.12, 0.12, 0.08, 0.08)
+def add_text_with_micro_shadow(slide, text, left, top, width, height,
+                               font_size_pt=48, bold=True, align=PP_ALIGN.LEFT,
+                               font_name='Apple SD Gothic Neo'):
+    """
+    반투명 패널 없이, '초미세' 그림자 텍스트 한 겹 + 흰 텍스트 한 겹으로 가독성 확보.
+    그림자 오프셋을 매우 작게 해서 '검은 윤곽선 느낌'만 살짝 남기는 게 핵심.
+    """
+    # 1) 그림자(뒤쪽) — 짙은 올리브, 매우 작은 오프셋
+    s_off = Inches(SHADOW_OFFSET_IN)
+    shadow_box = slide.shapes.add_textbox(left + s_off, top + s_off, width, height)
+    sframe = shadow_box.text_frame
+    sframe.word_wrap = True
+    p = sframe.paragraphs[0]
+    p.alignment = align
+    run = p.add_run()
+    run.text = text
+    run.font.size = Pt(font_size_pt)
+    run.font.bold = bold
+    run.font.color.rgb = SHADOW_COLOR
+    run.font.name = font_name
+
+    # 2) 실제 텍스트(앞쪽) — 흰색
+    main_box = slide.shapes.add_textbox(left, top, width, height)
+    mframe = main_box.text_frame
+    mframe.word_wrap = True
+    p2 = mframe.paragraphs[0]
+    p2.alignment = align
+    run2 = p2.add_run()
+    run2.text = text
+    run2.font.size = Pt(font_size_pt)
+    run2.font.bold = bold
+    run2.font.color.rgb = RGBColor(255, 255, 255)  # 흰색
+    run2.font.name = font_name
+
+    return main_box, shadow_box
 
 def make_bible_ppt(json_path, ref_path, output_path, background_image):
     prs = Presentation()
@@ -42,80 +71,40 @@ def make_bible_ppt(json_path, ref_path, output_path, background_image):
             width=prs.slide_width, height=prs.slide_height
         )
 
-        # 여백/영역
-        outer_margin = Inches(1.3)
-        left  = outer_margin + Inches(INNER_SIDE_GAP_IN)
-        right = outer_margin + Inches(INNER_SIDE_GAP_IN)
-        box_width = prs.slide_width - (left + right)
+        # 레이아웃 계산
+        margin = Inches(OUTER_MARGIN_IN)
+        left   = margin + Inches(INNER_SIDE_GAP_IN)
+        right  = margin + Inches(INNER_SIDE_GAP_IN)
+        box_w  = prs.slide_width - (left + right)
 
-        # ================================
-        # ① 제목 (은은한 띠 + 흰색 Bold)
-        # ================================
+        # ----- 제목 -----
         title_top = Inches(1.0)
-        title_h   = Inches(TITLE_BOX_HEIGHT_IN)
+        # 텍스트만 넣고(패널/배경 없음) 초미세 그림자만
+        add_text_with_micro_shadow(
+            slide,
+            text=verse["title"],
+            left=left, top=title_top,
+            width=box_w, height=Inches(0.9),
+            font_size_pt=TITLE_SIZE_PT,
+            bold=True, align=PP_ALIGN.LEFT
+        )
 
-        title_box = slide.shapes.add_textbox(left, title_top, box_width, title_h)
-        tframe = title_box.text_frame
-        tframe.word_wrap = True
-
-        # 내부 패딩
-        t_left, t_right, t_top, t_bottom = TITLE_MARGINS_IN
-        tframe.margin_left   = Inches(t_left)
-        tframe.margin_right  = Inches(t_right)
-        tframe.margin_top    = Inches(t_top)
-        tframe.margin_bottom = Inches(t_bottom)
-
-        # 텍스트 박스 배경을 아주 옅게(자연스러운 카키/올리브)
-        tfill = title_box.fill
-        tfill.solid()
-        tfill.fore_color.rgb = SHADE_COLOR
-        tfill.transparency   = TITLE_SHADE_ALPHA
-        title_box.line.fill.background()  # 테두리 제거
-
-        p_title = tframe.paragraphs[0]
-        p_title.alignment = PP_ALIGN.LEFT
-        run_title = p_title.add_run()
-        run_title.text = verse["title"]
-        run_title.font.size = Pt(36)
-        run_title.font.bold = True
-        run_title.font.color.rgb = RGBColor(255, 255, 255)  # 흰색
-        run_title.font.name = 'Apple SD Gothic Neo'
-
-        # 제목-본문 간 간격
+        # ----- 본문 -----
         body_top = title_top + Inches(0.70)
+        body_box_h = Inches(2.6)   # 도형 높이는 단순 캔버스; 텍스트 줄 수에 맞게 필요시 2.4~3.0 조정
 
-        # ================================
-        # ② 본문 (은은한 띠 + 흰색 Bold)
-        # ================================
-        body_h = Inches(BODY_BOX_HEIGHT_IN)
+        main_box, shadow_box = add_text_with_micro_shadow(
+            slide,
+            text=verse["text"],
+            left=left, top=body_top,
+            width=box_w, height=body_box_h,
+            font_size_pt=BODY_SIZE_PT,
+            bold=True, align=PP_ALIGN.JUSTIFY
+        )
 
-        body_box = slide.shapes.add_textbox(left, body_top, box_width, body_h)
-        bframe = body_box.text_frame
-        bframe.word_wrap = True
-
-        # 내부 패딩
-        b_left, b_right, b_top, b_bottom = BODY_MARGINS_IN
-        bframe.margin_left   = Inches(b_left)
-        bframe.margin_right  = Inches(b_right)
-        bframe.margin_top    = Inches(b_top)
-        bframe.margin_bottom = Inches(b_bottom)
-
-        # 본문 박스 배경 (제목보다도 한 단계 더 옅게)
-        bfill = body_box.fill
-        bfill.solid()
-        bfill.fore_color.rgb = SHADE_COLOR
-        bfill.transparency   = BODY_SHADE_ALPHA
-        body_box.line.fill.background()
-
-        p_body = bframe.paragraphs[0]
-        p_body.alignment = PP_ALIGN.JUSTIFY
-        p_body.line_spacing = 1.15  # 살짝만 줄여 박스 높이 최적화
-        run_body = p_body.add_run()
-        run_body.text = verse["text"]
-        run_body.font.size = Pt(50)  # 너무 커서 띠가 넓어지지 않게 소폭 다운
-        run_body.font.bold = True
-        run_body.font.color.rgb = RGBColor(255, 255, 255)  # 흰색
-        run_body.font.name = 'Apple SD Gothic Neo'
+        # 본문 줄간격만 살짝 조정
+        main_box.text_frame.paragraphs[0].line_spacing = LINE_SPACING
+        shadow_box.text_frame.paragraphs[0].line_spacing = LINE_SPACING
 
     prs.save(output_path)
     print(f"✅ PPT 저장 완료: {output_path}")
