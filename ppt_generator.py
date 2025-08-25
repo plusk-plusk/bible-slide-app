@@ -34,7 +34,7 @@ def make_bible_ppt(json_path, ref_path, output_path, background_image):
         run_title.text = verse["title"]
         run_title.font.size = Pt(36)
         run_title.font.bold = True
-        run_title.font.color.rgb = RGBColor(51, 51, 51)  # 회색 (#333333)
+        run_title.font.color.rgb = RGBColor(255, 255, 255)  # 회색 (#333333)
         run_title.font.name = 'Apple SD Gothic Neo'
 
         # 본문 텍스트 박스
@@ -49,7 +49,7 @@ def make_bible_ppt(json_path, ref_path, output_path, background_image):
         run_body.text = verse["text"]
         run_body.font.size = Pt(53)
         run_body.font.bold = True
-        run_body.font.color.rgb = RGBColor(34, 34, 34)  # 더 진한 회색 (#222222)
+        run_body.font.color.rgb = RGBColor(255, 255, 255)  # 더 진한 회색 (#222222)
         run_body.font.name = 'Apple SD Gothic Neo'
 
     prs.save(output_path)
