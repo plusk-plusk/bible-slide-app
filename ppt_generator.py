@@ -1,154 +1,117 @@
 from pptx import Presentation
-from pptx.util import Inches, Pt
-from pptx.enum.text import PP_ALIGN, MSO_AUTO_SIZE
-from pptx.dml.color import RGBColor
-from pptx.oxml.xmlchemy import OxmlElement
+from pptx.enum.shapes import PP_PLACEHOLDER
 from extractor import extract_bible_verses
 
 # ==============================
-# 가독성 중심 상수
+# 템플릿 설정 (경로/이름만 맞추면 나머지는 템플릿이 다 처리)
 # ==============================
-# 텍스트박스 배경: 딥 올리브(순블랙 대신) + 옅은 투명도
-SHADE_COLOR       = RGBColor(25, 30, 20)
-SHADE_ALPHA       = 0.12        # 0.10~0.16에서 조정 (숫자↑ = 더 옅음)
+# 템플릿 파일이 templates/ 폴더 안에 있다면:
+TEMPLATE_PATH = "templates/bible_verse_template.potx"
+# 만약 루트(맨 위)에 두었다면: TEMPLATE_PATH = "bible_verse_template.potx"
 
-# 흰 텍스트 + 윤곽선(프로젝터용 대비)
-OUTLINE_HEX       = "2A2A2A"    # 짙은 회색 (더 부드럽게는 "303030")
-OUTLINE_PT        = 0.9         # 0.8~1.1 권장
+# 슬라이드 마스터에서 만든 레이아웃 이름 (모르면 일단 None → 0번 레이아웃 사용)
+LAYOUT_NAME = None  # 예: "Verse Slide" 처럼 이름을 지정했다면 문자열로 넣기
 
-# 글꼴/크기/줄간격(요청 유지)
-TITLE_SIZE_PT     = 36
-BODY_SIZE_PT      = 50
-TITLE_ALIGN       = PP_ALIGN.LEFT
-BODY_ALIGN        = PP_ALIGN.JUSTIFY
-BODY_LINE_SPACING = 1.15
-
-# 레이아웃(여백)
-OUTER_MARGIN_IN   = 1.3
-INNER_SIDE_GAP_IN = 0.25
-TITLE_TOP_IN      = 1.0
-GAP_TITLE_BODY_IN = 0.25        # 제목과 본문 사이 간격(단락 간격처럼 사용)
-
-# 텍스트박스 내부 패딩(배경 띠 과하지 않게)
-MARGIN_LEFT_IN    = 0.12
-MARGIN_RIGHT_IN   = 0.12
-MARGIN_TOP_IN     = 0.10
-MARGIN_BOTTOM_IN  = 0.10
-
-FONT_NAME         = 'Apple SD Gothic Neo'  # 환경에 맞게 변경 가능
+# Placeholder(자리표시자) 이름 (선택사항)
+TITLE_PLACEHOLDER_NAME = "Title"  # 선택창에서 이름을 이렇게 주었다면 그대로 사용
+BODY_PLACEHOLDER_NAME  = "Verse"  # 못 찾으면 타입으로 자동 탐색
 
 # ==============================
-# 유틸: 텍스트 윤곽선(Outline)
+# 유틸: 레이아웃/플레이스홀더 찾기
 # ==============================
-def apply_text_outline(run, color_hex="2A2A2A", width_pt=0.9):
-    r = run._r
-    rPr = r.get_or_add_rPr()
+def _get_layout(prs, name_or_none):
+    if name_or_none:
+        for layout in prs.slide_layouts:
+            if getattr(layout, "name", "") == name_or_none:
+                return layout
+    # 이름이 없거나 못 찾으면 0번 레이아웃 사용
+    return prs.slide_layouts[0]
 
-    ln = OxmlElement('a:ln')
-    ln.set('w', str(int(width_pt * 12700)))  # 1pt ≈ 12700 EMU
+def _find_placeholder_by_name(slide, name):
+    for ph in slide.placeholders:
+        if ph.name == name:
+            return ph
+    return None
 
-    solidFill = OxmlElement('a:solidFill')
-    srgbClr = OxmlElement('a:srgbClr')
-    srgbClr.set('val', color_hex)
-    solidFill.append(srgbClr)
-    ln.append(solidFill)
+def _find_title_placeholder(slide):
+    # 1) 이름으로
+    ph = _find_placeholder_by_name(slide, TITLE_PLACEHOLDER_NAME)
+    if ph:
+        return ph
+    # 2) 타입이 TITLE 인 것
+    for ph in slide.placeholders:
+        try:
+            if ph.placeholder_format.type == PP_PLACEHOLDER.TITLE:
+                return ph
+        except Exception:
+            continue
+    # 3) shapes.title 보조
+    if slide.shapes.title:
+        return slide.shapes.title
+    return None
 
-    rPr.append(ln)
-
-# ==============================
-# 핵심: "한 개 텍스트박스"에 제목+본문 단락을 넣고, 자동 높이로
-# ==============================
-def add_one_box_title_and_body(slide, title_text, body_text, left, top, width):
-    # 초기 높이는 아주 작게 → 자동으로 텍스트만큼 커짐
-    tb = slide.shapes.add_textbox(left, top, width, Inches(0.1))
-    tf = tb.text_frame
-    tf.word_wrap = True
-
-    # 내부 패딩
-    tf.margin_left   = Inches(MARGIN_LEFT_IN)
-    tf.margin_right  = Inches(MARGIN_RIGHT_IN)
-    tf.margin_top    = Inches(MARGIN_TOP_IN)
-    tf.margin_bottom = Inches(MARGIN_BOTTOM_IN)
-
-    # ■ 제목 단락
-    p_title = tf.paragraphs[0]
-    p_title.alignment = TITLE_ALIGN
-    run_title = p_title.add_run()
-    run_title.text = title_text
-    run_title.font.size = Pt(TITLE_SIZE_PT)
-    run_title.font.bold = True
-    run_title.font.color.rgb = RGBColor(255, 255, 255)
-    run_title.font.name = FONT_NAME
-    apply_text_outline(run_title, color_hex=OUTLINE_HEX, width_pt=OUTLINE_PT)
-
-    # 제목과 본문 사이 약간의 여백(줄바꿈)
-    p_gap = tf.add_paragraph()
-    p_gap.space_before = 0
-    p_gap.space_after  = 0
-    p_gap.add_run().text = ""  # 빈 줄
-    # 필요시 GAP_TITLE_BODY_IN 값을 더 키우려면 여기서 빈 줄을 2개로
-
-    # ■ 본문 단락
-    p_body = tf.add_paragraph()
-    p_body.alignment = BODY_ALIGN
-    p_body.line_spacing = BODY_LINE_SPACING
-    run_body = p_body.add_run()
-    run_body.text = body_text
-    run_body.font.size = Pt(BODY_SIZE_PT)
-    run_body.font.bold = True
-    run_body.font.color.rgb = RGBColor(255, 255, 255)
-    run_body.font.name = FONT_NAME
-    apply_text_outline(run_body, color_hex=OUTLINE_HEX, width_pt=OUTLINE_PT)
-
-    # 텍스트박스 배경(아주 옅게) — 도형 1개라 경계선/검은 줄 없음
-    fill = tb.fill
-    fill.solid()
-    fill.fore_color.rgb = SHADE_COLOR
-    fill.transparency = SHADE_ALPHA
-    tb.line.fill.background()  # 도형 테두리선 제거
-
-    # 자동으로 텍스트에 맞춰 '도형 높이' 조절
-    tf.auto_size = MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT
-
-    return tb
+def _find_body_placeholder(slide):
+    # 1) 이름으로
+    ph = _find_placeholder_by_name(slide, BODY_PLACEHOLDER_NAME)
+    if ph:
+        return ph
+    # 2) 타입 후보군에서 첫 번째 (BODY → CONTENT → SUBTITLE 순)
+    type_order = [
+        PP_PLACEHOLDER.BODY,
+        PP_PLACEHOLDER.CONTENT,
+        PP_PLACEHOLDER.SUBTITLE,
+        PP_PLACEHOLDER.OBJECT,
+    ]
+    for ph in slide.placeholders:
+        try:
+            if ph.placeholder_format.type in type_order:
+                return ph
+        except Exception:
+            continue
+    # 3) 마지막 수단: 제목이 아닌 첫 번째 placeholder
+    for ph in slide.placeholders:
+        try:
+            if ph.placeholder_format.type != PP_PLACEHOLDER.TITLE:
+                return ph
+        except Exception:
+            continue
+    return None
 
 # ==============================
-# 메인
+# 메인: 템플릿에 텍스트만 채워 넣기
 # ==============================
-def make_bible_ppt(json_path, ref_path, output_path, background_image):
-    prs = Presentation()
-    prs.slide_width  = Inches(13.33)  # 16:9
-    prs.slide_height = Inches(7.5)
+def make_bible_ppt(json_path, ref_path, output_path, background_image=None):
+    """
+    템플릿(.potx/.pptx)을 불러와서
+    - 레이아웃 그대로 쓰고
+    - Title / Verse 자리(placeholder)에 텍스트만 채웁니다.
+    스타일(배경/글꼴/윤곽선/여백/자동맞춤)은 템플릿에서 관리합니다.
+    background_image 인자는 호환을 위해 남겨두되 사용하지 않습니다.
+    """
+    prs = Presentation(TEMPLATE_PATH)
+    layout = _get_layout(prs, LAYOUT_NAME)
 
     verses = extract_bible_verses(json_path, ref_path)
     if not verses:
         print("⚠️ 구절이 없어서 PPT를 생성하지 않았습니다.")
         return
 
-    # 공통 좌우 폭
-    margin = Inches(OUTER_MARGIN_IN)
-    left   = margin + Inches(INNER_SIDE_GAP_IN)
-    right  = margin + Inches(INNER_SIDE_GAP_IN)
-    box_w  = prs.slide_width - (left + right)
-
     for verse in verses:
-        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        slide = prs.slides.add_slide(layout)
 
-        # 배경 이미지
-        slide.shapes.add_picture(
-            background_image, 0, 0,
-            width=prs.slide_width, height=prs.slide_height
-        )
+        # 제목 채우기
+        title_ph = _find_title_placeholder(slide)
+        if title_ph is not None:
+            title_ph.text = verse.get("title", "")
+        else:
+            print("⚠️ 제목 placeholder를 찾지 못해 이 슬라이드의 제목을 건너뜁니다.")
 
-        # 한 개 텍스트박스(제목+본문) — 경계선/이중 박스가 아예 없다
-        add_one_box_title_and_body(
-            slide=slide,
-            title_text=verse["title"],
-            body_text=verse["text"],
-            left=left,
-            top=Inches(TITLE_TOP_IN),
-            width=box_w
-        )
+        # 본문 채우기
+        body_ph = _find_body_placeholder(slide)
+        if body_ph is not None:
+            body_ph.text = verse.get("text", "")
+        else:
+            print("⚠️ 본문 placeholder를 찾지 못해 이 슬라이드의 본문을 건너뜁니다.")
 
     prs.save(output_path)
     print(f"✅ PPT 저장 완료: {output_path}")
