@@ -1,93 +1,98 @@
 # -*- coding: utf-8 -*-
 """
-서버용 최소/안정 ppt_generator.py
-- 템플릿(.pptx) 사용 안 함 (우회)
-- 배경 이미지 + 텍스트박스로 PPT 생성
-- __main__ 테스트 블록 없음 (문법 에러 방지)
+템플릿(.pptx) 기반 성경 슬라이드 생성기
+- 슬라이드 마스터/레이아웃에 '제목(Title)' + '본문(Body)' 자리표시자가 있어야 함
+- 배경/폰트/그림자 같은 시각효과는 템플릿에서 제어 (코드는 텍스트만 주입)
 """
 
+import os
 from pptx import Presentation
-from pptx.util import Inches, Pt
+from pptx.enum.shapes import PP_PLACEHOLDER
 from pptx.enum.text import PP_ALIGN
-from pptx.dml.color import RGBColor
 from extractor import extract_bible_verses
 
-# 가독성 기본값
-TITLE_SIZE_PT     = 36
-BODY_SIZE_PT      = 50
-BODY_LINE_SPACING = 1.15
-FONT_NAME         = 'Apple SD Gothic Neo'
+# ---- 템플릿 경로(절대경로) ----
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+TEMPLATE_PATH = os.path.join(BASE_DIR, "templates", "bible_verse_template.pptx")
 
-# 레이아웃(여백)
-OUTER_MARGIN_IN   = 1.3
-TITLE_TOP_IN      = 1.0
-GAP_TITLE_BODY_IN = 0.85   # 제목 아래 본문 시작 위치 차이
+# 필요하면 특정 레이아웃 이름으로 고정 가능 (None이면 자동 탐색)
+PREFERRED_LAYOUT_NAME = None  # 예: "Verse Layout"
 
-def _add_title(slide, text, left, top, width):
-    box = slide.shapes.add_textbox(left, top, width, Inches(0.6))
-    tf = box.text_frame
-    tf.word_wrap = True
-    p = tf.paragraphs[0]
-    p.alignment = PP_ALIGN.LEFT
-    run = p.add_run()
-    run.text = text or ""
-    run.font.size = Pt(TITLE_SIZE_PT)
-    run.font.bold = True
-    run.font.color.rgb = RGBColor(255, 255, 255)
-    run.font.name = FONT_NAME
-
-def _add_body(slide, text, left, top, width, height):
-    box = slide.shapes.add_textbox(left, top, width, height)
-    tf = box.text_frame
-    tf.word_wrap = True
-    p = tf.paragraphs[0]
-    p.alignment = PP_ALIGN.JUSTIFY
-    p.line_spacing = BODY_LINE_SPACING
-    run = p.add_run()
-    run.text = text or ""
-    run.font.size = Pt(BODY_SIZE_PT)
-    run.font.bold = True
-    run.font.color.rgb = RGBColor(255, 255, 255)
-    run.font.name = FONT_NAME
-
-def make_bible_ppt(json_path, ref_path, output_path, background_image):
+def _pick_layout(prs):
     """
-    템플릿 없이 배경 이미지 + 텍스트박스로 PPT 생성 (서버용 안정 버전)
-    app.py에서: from ppt_generator import make_bible_ppt as generate_ppt
+    템플릿에서 '제목 + 본문' 자리표시자가 동시에 있는 레이아웃을 선택.
+    이름을 지정했다면 이름 우선, 없으면 자동 탐색.
     """
-    prs = Presentation()
-    prs.slide_width = Inches(13.33)   # 16:9
-    prs.slide_height = Inches(7.5)
+    if PREFERRED_LAYOUT_NAME:
+        for lo in prs.slide_layouts:
+            if lo.name == PREFERRED_LAYOUT_NAME:
+                return lo
 
+    # 자동 탐색: TITLE과 BODY 자리표시자를 둘 다 가진 첫 레이아웃
+    for lo in prs.slide_layouts:
+        kinds = []
+        for shp in lo.shapes:
+            if shp.is_placeholder:
+                kinds.append(shp.placeholder_format.type)
+        if (PP_PLACEHOLDER.TITLE in kinds) and (PP_PLACEHOLDER.BODY in kinds):
+            return lo
+
+    # 못 찾으면 첫 레이아웃이라도 반환 (최악의 경우)
+    return prs.slide_layouts[0]
+
+def _get_placeholder(slide, ptype):
+    """슬라이드에서 지정 타입(TITLE/BODY)의 자리표시자 객체 반환 (없으면 None)"""
+    for shp in slide.shapes:
+        if shp.is_placeholder and shp.placeholder_format.type == ptype:
+            return shp
+    return None
+
+def _set_text(shape, text, align=None):
+    """자리표시자에 텍스트 넣기 (기존 내용 비우고 1문단만 사용)"""
+    if shape is None:
+        return
+    tf = shape.text_frame
+    tf.clear()
+    p = tf.paragraphs[0]
+    if align is not None:
+        p.alignment = align
+    p.text = text or ""
+
+def make_bible_ppt(json_path, ref_path, output_path, background_image=None):
+    """
+    템플릿 기반으로 슬라이드 생성.
+    - 텍스트만 채움 (시각효과는 템플릿에서 설정)
+    - background_image 인자는 무시(템플릿 배경 사용). 필요 시 템플릿에서 바꿔주세요.
+    """
+    # 템플릿 열기
+    prs = Presentation(TEMPLATE_PATH)
+
+    # 사용할 레이아웃 선택
+    layout = _pick_layout(prs)
+
+    # 구절 로드
     verses = extract_bible_verses(json_path, ref_path)
     if not verses:
         print("⚠️ 구절이 없어서 PPT를 생성하지 않았습니다.")
         return
 
-    margin = Inches(OUTER_MARGIN_IN)
-    box_width = prs.slide_width - 2 * margin
-
     for verse in verses:
-        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        # 레이아웃으로 새 슬라이드 추가
+        slide = prs.slides.add_slide(layout)
 
-        # 배경 이미지
-        if background_image:
-            try:
-                slide.shapes.add_picture(
-                    background_image, 0, 0,
-                    width=prs.slide_width, height=prs.slide_height
-                )
-            except Exception as e:
-                print("배경 이미지 로드 실패:", repr(e))
+        # 자리표시자 찾기
+        t_shp = _get_placeholder(slide, PP_PLACEHOLDER.TITLE)
+        b_shp = _get_placeholder(slide, PP_PLACEHOLDER.BODY)
 
-        # 제목
-        title_top = Inches(TITLE_TOP_IN)
-        _add_title(slide, verse.get("title", ""), margin, title_top, box_width)
+        # 텍스트 주입
+        _set_text(t_shp, verse.get("title", ""), align=PP_ALIGN.LEFT)
+        _set_text(b_shp, verse.get("text", ""),  align=PP_ALIGN.JUSTIFY)
 
-        # 본문
-        body_top = title_top + Inches(GAP_TITLE_BODY_IN)
-        body_height = Inches(3.8)  # 필요시 조정
-        _add_body(slide, verse.get("text", ""), margin, body_top, box_width, body_height)
+        # 만약 템플릿이 SUBTITLE을 쓴 경우(드물지만) 보정
+        if b_shp is None:
+            sub = _get_placeholder(slide, PP_PLACEHOLDER.SUBTITLE)
+            if sub is not None:
+                _set_text(sub, verse.get("text", ""), align=PP_ALIGN.JUSTIFY)
 
     prs.save(output_path)
     print(f"✅ PPT 저장 완료: {output_path}")
