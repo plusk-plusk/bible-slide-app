@@ -1,77 +1,117 @@
 import os
 from pptx import Presentation
+from pptx.util import Inches, Pt
 from pptx.enum.shapes import PP_PLACEHOLDER
 from extractor import extract_bible_verses
 
-# ==============================
-# 템플릿 경로 (절대경로로 안전하게)
-# ==============================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_PATH = os.path.join(BASE_DIR, "templates", "bible_verse_template.pptx")
 
-# 레이아웃/자리표시자 이름
-LAYOUT_NAME = None                  # 특정 레이아웃명을 쓸 경우 문자열로 지정, 모르면 None(0번 사용)
-TITLE_PLACEHOLDER_NAME = "Title"    # 마스터에서 만든 제목 자리표시자 이름
-BODY_PLACEHOLDER_NAME  = "Verse"    # 마스터에서 만든 본문 자리표시자 이름
+LAYOUT_NAME = None
+TITLE_PLACEHOLDER_NAME = "Title"
+BODY_PLACEHOLDER_NAME  = "Verse"
 
-# ==============================
+# -----------------------
 # 유틸
-# ==============================
-def _get_layout(prs, name_or_none):
-    """레이아웃 이름으로 찾고, 없으면 0번 반환"""
-    if name_or_none:
-        for layout in prs.slide_layouts:
-            if getattr(layout, "name", "") == name_or_none:
-                return layout
-    return prs.slide_layouts[0]
-
-def _find_placeholder_by_name(slide, name):
-    for ph in slide.placeholders:
-        if ph.name == name:
-            return ph
-    return None
-
+# -----------------------
 def _has_text_frame(shape):
     try:
         return getattr(shape, "has_text_frame", False) and shape.has_text_frame
     except Exception:
         return False
 
-def _safe_set_text(shape, text):
+def _shape_bbox(shape):
+    try:
+        return shape.left, shape.top, shape.width, shape.height
+    except Exception:
+        return None
+
+def _debug_dump_placeholders(slide):
+    print("---- placeholders on slide ----")
+    for ph in slide.placeholders:
+        t = None
+        nm = getattr(ph, "name", "?")
+        try:
+            t = ph.placeholder_format.type
+        except Exception:
+            pass
+        print(f"name={nm}, type={t}, has_tf={_has_text_frame(ph)}")
+
+def _get_layout(prs, name_or_none):
+    if name_or_none:
+        for layout in prs.slide_layouts:
+            if getattr(layout, "name", "") == name_or_none:
+                return layout
+    return prs.slide_layouts[0]
+
+def _find_by_name(slide, name):
+    for ph in slide.placeholders:
+        if ph.name == name:
+            return ph
+    return None
+
+def _safe_set_in_placeholder_or_textbox(slide, target_shape, text, fallback_bbox=None):
     """
-    BODY / SUBTITLE / CONTENT 등 어떤 placeholder든
-    text_frame이 있으면 안전하게 텍스트를 설정.
+    target_shape에 텍스트를 넣되, 불가하면 같은 위치(fallback_bbox)나
+    적절한 여백 영역에 새 텍스트박스를 만들어 텍스트를 입력.
     """
-    if not _has_text_frame(shape):
-        raise ValueError("선택된 placeholder에 text_frame이 없습니다.")
-    tf = shape.text_frame
-    tf.clear()              # 남아있는 단락/런 정리
-    tf.text = text or ""
+    text = text or ""
+    # 1) placeholder에 직접 넣기 시도
+    if target_shape is not None and _has_text_frame(target_shape):
+        try:
+            tf = target_shape.text_frame
+            tf.clear()
+            tf.text = text
+            return
+        except Exception as e:
+            print("placeholder set failed:", repr(e))
+
+    # 2) 동일 위치에 텍스트박스 생성 시도
+    bbox = None
+    if fallback_bbox:
+        bbox = fallback_bbox
+    elif target_shape is not None:
+        bbox = _shape_bbox(target_shape)
+
+    if bbox:
+        left, top, width, height = bbox
+    else:
+        # 완전한 fallback: 화면의 안전한 영역 잡기
+        # 16:9 가정(템플릿도 16:9일 가능성 높음)
+        prs = slide.part.presentation
+        sw, sh = prs.slide_width, prs.slide_height
+        m = Inches(1.0)
+        left, top = m, Inches(1.2)
+        width, height = sw - 2*m, sh - 2*Inches(1.4)
+
+    try:
+        tb = slide.shapes.add_textbox(left, top, width, height)
+        tf = tb.text_frame
+        tf.clear()
+        tf.text = text
+    except Exception as e:
+        print("textbox fallback failed:", repr(e))
 
 def _find_title_placeholder(slide):
-    # 1) 이름 우선
-    ph = _find_placeholder_by_name(slide, TITLE_PLACEHOLDER_NAME)
-    if ph and _has_text_frame(ph):
-        return ph
-    # 2) 타입(TITLE, CENTER_TITLE)
+    # 1) 이름
+    ph = _find_by_name(slide, TITLE_PLACEHOLDER_NAME)
+    if ph: return ph
+    # 2) 타입
     for typ in (PP_PLACEHOLDER.TITLE, PP_PLACEHOLDER.CENTER_TITLE):
         for shp in slide.placeholders:
             try:
-                if shp.placeholder_format.type == typ and _has_text_frame(shp):
+                if shp.placeholder_format.type == typ:
                     return shp
             except Exception:
                 continue
     # 3) 보조
-    if slide.shapes.title and _has_text_frame(slide.shapes.title):
-        return slide.shapes.title
-    return None
+    return getattr(slide.shapes, "title", None)
 
 def _find_body_placeholder(slide):
-    # 1) 이름 우선
-    ph = _find_placeholder_by_name(slide, BODY_PLACEHOLDER_NAME)
-    if ph and _has_text_frame(ph):
-        return ph
-    # 2) 타입 우선순위: BODY → SUBTITLE → CONTENT → OBJECT
+    # 1) 이름
+    ph = _find_by_name(slide, BODY_PLACEHOLDER_NAME)
+    if ph: return ph
+    # 2) 타입 우선순위
     type_order = [
         PP_PLACEHOLDER.BODY,
         PP_PLACEHOLDER.SUBTITLE,
@@ -81,32 +121,28 @@ def _find_body_placeholder(slide):
     for t in type_order:
         for shp in slide.placeholders:
             try:
-                if shp.placeholder_format.type == t and _has_text_frame(shp):
+                if shp.placeholder_format.type == t:
                     return shp
             except Exception:
                 continue
-    # 3) 마지막: 제목이 아닌 텍스트프레임 보유 placeholder
+    # 3) 마지막: 제목이 아닌 아무 placeholder
     for shp in slide.placeholders:
         try:
-            if shp.placeholder_format.type != PP_PLACEHOLDER.TITLE and _has_text_frame(shp):
+            if shp.placeholder_format.type != PP_PLACEHOLDER.TITLE:
                 return shp
         except Exception:
             continue
     return None
 
-# ==============================
+# -----------------------
 # 메인
-# ==============================
+# -----------------------
 def make_bible_ppt(json_path, ref_path, output_path, background_image=None):
-    """
-    템플릿(.pptx)을 로드해 Title/Verse 자리표시자에 텍스트만 주입합니다.
-    background_image 인자는 템플릿 방식에선 사용하지 않습니다.
-    """
     print("TEMPLATE_PATH:", TEMPLATE_PATH)
     if not os.path.exists(TEMPLATE_PATH):
         raise FileNotFoundError(
             f"템플릿이 없습니다: {TEMPLATE_PATH}\n"
-            f"- templates 폴더에 bible_verse_template.pptx 가 있는지 확인하세요."
+            f"- templates/bible_verse_template.pptx 가 존재하는지 확인하세요."
         )
 
     prs = Presentation(TEMPLATE_PATH)
@@ -120,25 +156,28 @@ def make_bible_ppt(json_path, ref_path, output_path, background_image=None):
     for verse in verses:
         slide = prs.slides.add_slide(layout)
 
-        # 제목
-        title_ph = _find_title_placeholder(slide)
-        if title_ph is not None:
-            try:
-                _safe_set_text(title_ph, verse.get("title", ""))
-            except Exception as e:
-                print("제목 채우기 오류:", repr(e))
-        else:
-            print("⚠️ 제목 placeholder를 찾지 못했습니다.")
+        # 진단 로그
+        _debug_dump_placeholders(slide)
 
-        # 본문
+        # 제목 채우기 (실패하면 동일 위치에 텍스트박스 생성)
+        title_ph = _find_title_placeholder(slide)
+        title_bbox = _shape_bbox(title_ph) if title_ph is not None else None
+        try:
+            _safe_set_in_placeholder_or_textbox(
+                slide, title_ph, verse.get("title", ""), fallback_bbox=title_bbox
+            )
+        except Exception as e:
+            print("제목 처리 오류:", repr(e))
+
+        # 본문 채우기 (실패하면 동일 위치에 텍스트박스 생성)
         body_ph = _find_body_placeholder(slide)
-        if body_ph is not None:
-            try:
-                _safe_set_text(body_ph, verse.get("text", ""))
-            except Exception as e:
-                print("본문 채우기 오류:", repr(e))
-        else:
-            print("⚠️ 본문 placeholder를 찾지 못했습니다.")
+        body_bbox = _shape_bbox(body_ph) if body_ph is not None else None
+        try:
+            _safe_set_in_placeholder_or_textbox(
+                slide, body_ph, verse.get("text", ""), fallback_bbox=body_bbox
+            )
+        except Exception as e:
+            print("본문 처리 오류:", repr(e))
 
     prs.save(output_path)
     print(f"✅ PPT 저장 완료: {output_path}")
